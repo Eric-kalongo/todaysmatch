@@ -35,17 +35,15 @@ async function getMatchesData() {
   const apiKey = process.env.NEXT_PUBLIC_API_TOKEN;
   const headers = { 'X-Auth-Token': apiKey || '' };
   
-  // 1. Define Dates
   const todayObj = new Date();
   const todayStr = todayObj.toISOString().split('T')[0];
 
   try {
-    // 2. Attempt: Fetch TODAY'S matches
+    // 1. Try fetching TODAY
     const urlToday = `https://api.football-data.org/v4/matches?dateFrom=${todayStr}&dateTo=${todayStr}`;
     const resToday = await fetch(urlToday, { headers, next: { revalidate: 60 } });
     const dataToday = await resToday.json();
 
-    // If we have matches today, return them immediately
     if (dataToday.matches && dataToday.matches.length > 0) {
       return { 
         matches: dataToday.matches, 
@@ -54,24 +52,23 @@ async function getMatchesData() {
       };
     }
 
-    // 3. Fallback: If today is empty, fetch NEXT 3 DAYS
+    // 2. If empty, fetch NEXT 7 DAYS (Widened for Christmas Break)
     const tomorrowObj = new Date(todayObj);
     tomorrowObj.setDate(tomorrowObj.getDate() + 1);
     const tomorrowStr = tomorrowObj.toISOString().split('T')[0];
 
     const futureObj = new Date(todayObj);
-    futureObj.setDate(futureObj.getDate() + 3);
+    futureObj.setDate(futureObj.getDate() + 7); // Changed from 3 to 7
     const futureStr = futureObj.toISOString().split('T')[0];
 
-    // Fetch slightly wider range to ensure we show *something*
     const urlFuture = `https://api.football-data.org/v4/matches?dateFrom=${tomorrowStr}&dateTo=${futureStr}`;
-    const resFuture = await fetch(urlFuture, { headers, next: { revalidate: 3600 } }); // Cache for 1 hour
+    const resFuture = await fetch(urlFuture, { headers, next: { revalidate: 3600 } });
     const dataFuture = await resFuture.json();
 
     return { 
       matches: dataFuture.matches || [], 
       isToday: false, 
-      label: "Upcoming Fixtures (Next 3 Days)" 
+      label: "Upcoming Fixtures (Next 7 Days)" 
     };
 
   } catch (error) {
@@ -82,16 +79,13 @@ async function getMatchesData() {
 export default async function Home() {
   const { matches, isToday, label } = await getMatchesData();
 
-  // Sort: Live/Today games by status, Future games by Date
   const sortedMatches = matches.sort((a: Match, b: Match) => {
     if (isToday) {
-      // Prioritize LIVE games
       const isALive = a.status === 'IN_PLAY' || a.status === 'PAUSED';
       const isBLive = b.status === 'IN_PLAY' || b.status === 'PAUSED';
       if (isALive && !isBLive) return -1;
       if (!isALive && isBLive) return 1;
     }
-    // Otherwise sort by time
     return new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime();
   });
 
@@ -105,7 +99,6 @@ export default async function Home() {
               <h1 className="text-3xl font-extrabold tracking-tight">Today's Match</h1>
               <p className="text-emerald-100 text-sm mt-1">Live Football Scores & Fixtures</p>
             </div>
-            {/* Show Live Badge ONLY if it is actually today */}
             {isToday && (
               <div className="hidden md:flex items-center bg-emerald-800 px-4 py-2 rounded-full border border-emerald-600 shadow-sm">
                 <span className="relative flex h-3 w-3 mr-2">
@@ -123,30 +116,28 @@ export default async function Home() {
       <div className="max-w-3xl mx-auto px-4 -mt-6">
         <div className="space-y-4 pb-12">
           
-          {/* Section Label (e.g., "Upcoming Fixtures") */}
+          {/* Section Label */}
           {!isToday && matches.length > 0 && (
             <div className="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-3 rounded-xl mb-4 text-center font-medium shadow-sm">
-              ℹ️ No matches scheduled for today. Showing upcoming games:
+              ℹ️ No matches today. Showing upcoming fixtures:
             </div>
           )}
 
           {sortedMatches.length === 0 ? (
             <div className="p-12 bg-white rounded-xl shadow-sm text-center border border-slate-200">
-              <div className="text-4xl mb-4">⚽</div>
+              <div className="text-4xl mb-4">📅</div>
               <h3 className="text-lg font-bold text-slate-700">No matches found</h3>
-              <p className="text-slate-500 text-sm mt-2">Check back later for updates!</p>
+              <p className="text-slate-500 text-sm mt-2">The football world is on a short break!</p>
             </div>
           ) : (
             sortedMatches.map((match: Match) => (
               <div key={match.id} className="group bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-all duration-200">
-                {/* Match Header */}
                 <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                      <span className="w-1 h-4 bg-emerald-500 rounded-full block"></span>
                      {match.competition.name}
                   </span>
                   
-                  {/* Status / Date Badge */}
                   {isToday ? (
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       match.status === 'IN_PLAY' || match.status === 'PAUSED'
@@ -158,14 +149,12 @@ export default async function Home() {
                       {match.status === 'IN_PLAY' ? 'LIVE' : match.status.replace('_', ' ')}
                     </span>
                   ) : (
-                    // If showing future matches, show the DATE instead of status
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
                       {new Date(match.utcDate).toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'})}
                     </span>
                   )}
                 </div>
 
-                {/* Match Body */}
                 <div className="p-5 flex items-center justify-between">
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
                     {match.homeTeam.crest && (
