@@ -21,7 +21,7 @@ const LEAGUES: Record<string, string> = {
 async function getLeagueMatches(code: string) {
   const apiKey = process.env.NEXT_PUBLIC_API_TOKEN;
   
-  // Fetch scheduled matches for the next 21 days (3 weeks)
+  // Fetch scheduled matches for the next 21 days
   const today = new Date();
   const future = new Date(today);
   future.setDate(today.getDate() + 21);
@@ -29,13 +29,12 @@ async function getLeagueMatches(code: string) {
   const dateFrom = today.toISOString().split('T')[0];
   const dateTo = future.toISOString().split('T')[0];
   
-  // USE SPECIFIC COMPETITION ENDPOINT (More reliable for schedules)
   const url = `https://api.football-data.org/v4/competitions/${code}/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`;
 
   try {
     const res = await fetch(url, {
       headers: { 'X-Auth-Token': apiKey || '' },
-      next: { revalidate: 3600 }, // Cache for 1 hour
+      next: { revalidate: 3600 },
     });
     
     if (!res.ok) return [];
@@ -78,7 +77,7 @@ export default async function LeaguePage({ params }: PageProps) {
             <div className="text-4xl mb-4">📅</div>
             <h3 className="text-lg font-bold text-slate-700">No upcoming matches found</h3>
             <p className="text-slate-500 text-sm mt-2">
-              (Note: The free API might limit long-range schedules)
+              Check back later for updates.
             </p>
           </div>
         ) : (
