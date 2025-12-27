@@ -36,40 +36,42 @@ async function getMatchesData() {
   const headers = { 'X-Auth-Token': apiKey || '' };
   
   const todayObj = new Date();
-  const todayStr = todayObj.toISOString().split('T')[0];
+  const todayStr = todayObj.toISOString().split('T')[0]; // UTC Date
+
+  // Calculate 7 days ahead
+  const futureObj = new Date(todayObj);
+  futureObj.setDate(futureObj.getDate() + 7);
+  const futureStr = futureObj.toISOString().split('T')[0];
 
   try {
-    // 1. Try fetching TODAY
-    const urlToday = `https://api.football-data.org/v4/matches?dateFrom=${todayStr}&dateTo=${todayStr}`;
-    const resToday = await fetch(urlToday, { headers, next: { revalidate: 60 } });
-    const dataToday = await resToday.json();
+    // SINGLE FETCH STRATEGY:
+    // Fetch everything (Today + 7 Days) in one request.
+    // This allows us to filter client-side and prevents caching desync.
+    // We revalidate this EVERY 60 SECONDS so live games always appear.
+    const url = `https://api.football-data.org/v4/matches?dateFrom=${todayStr}&dateTo=${futureStr}`;
+    const res = await fetch(url, { headers, next: { revalidate: 60 } });
+    const data = await res.json();
+    const allMatches = data.matches || [];
 
-    if (dataToday.matches && dataToday.matches.length > 0) {
+    // Filter: Isolate Today's Matches
+    // We compare the UTC date string to the match's UTC date
+    const todayMatches = allMatches.filter((m: Match) => m.utcDate.startsWith(todayStr));
+
+    if (todayMatches.length > 0) {
+      // If we have games today, SHOW THEM
       return { 
-        matches: dataToday.matches, 
+        matches: todayMatches, 
         isToday: true, 
         label: "Today's Matches" 
       };
+    } else {
+      // If no games today, show the future list
+      return { 
+        matches: allMatches, 
+        isToday: false, 
+        label: "Upcoming Fixtures (Next 7 Days)" 
+      };
     }
-
-    // 2. If empty, fetch NEXT 7 DAYS (Widened for Christmas Break)
-    const tomorrowObj = new Date(todayObj);
-    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-    const tomorrowStr = tomorrowObj.toISOString().split('T')[0];
-
-    const futureObj = new Date(todayObj);
-    futureObj.setDate(futureObj.getDate() + 7); // Changed from 3 to 7
-    const futureStr = futureObj.toISOString().split('T')[0];
-
-    const urlFuture = `https://api.football-data.org/v4/matches?dateFrom=${tomorrowStr}&dateTo=${futureStr}`;
-    const resFuture = await fetch(urlFuture, { headers, next: { revalidate: 3600 } });
-    const dataFuture = await resFuture.json();
-
-    return { 
-      matches: dataFuture.matches || [], 
-      isToday: false, 
-      label: "Upcoming Fixtures (Next 7 Days)" 
-    };
 
   } catch (error) {
     return { matches: [], isToday: true, label: "Live Scores" };
@@ -79,13 +81,16 @@ async function getMatchesData() {
 export default async function Home() {
   const { matches, isToday, label } = await getMatchesData();
 
+  // Sort logic
   const sortedMatches = matches.sort((a: Match, b: Match) => {
     if (isToday) {
+      // Live games top priority
       const isALive = a.status === 'IN_PLAY' || a.status === 'PAUSED';
       const isBLive = b.status === 'IN_PLAY' || b.status === 'PAUSED';
       if (isALive && !isBLive) return -1;
       if (!isALive && isBLive) return 1;
     }
+    // Then by time
     return new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime();
   });
 
@@ -116,10 +121,10 @@ export default async function Home() {
       <div className="max-w-3xl mx-auto px-4 -mt-6">
         <div className="space-y-4 pb-12">
           
-          {/* Section Label */}
+          {/* Informational Banner if showing future games */}
           {!isToday && matches.length > 0 && (
             <div className="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-3 rounded-xl mb-4 text-center font-medium shadow-sm">
-              ℹ️ No matches today. Showing upcoming fixtures:
+              ℹ️ No matches scheduled for today. Showing upcoming fixtures:
             </div>
           )}
 
@@ -127,11 +132,12 @@ export default async function Home() {
             <div className="p-12 bg-white rounded-xl shadow-sm text-center border border-slate-200">
               <div className="text-4xl mb-4">📅</div>
               <h3 className="text-lg font-bold text-slate-700">No matches found</h3>
-              <p className="text-slate-500 text-sm mt-2">The football world is on a short break!</p>
+              <p className="text-slate-500 text-sm mt-2">Check back later!</p>
             </div>
           ) : (
             sortedMatches.map((match: Match) => (
               <div key={match.id} className="group bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-all duration-200">
+                {/* Match Header */}
                 <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                      <span className="w-1 h-4 bg-emerald-500 rounded-full block"></span>
@@ -155,7 +161,9 @@ export default async function Home() {
                   )}
                 </div>
 
+                {/* Match Body */}
                 <div className="p-5 flex items-center justify-between">
+                  {/* Home */}
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
                     {match.homeTeam.crest && (
                       <img src={match.homeTeam.crest} alt={match.homeTeam.name} className="h-10 w-10 sm:h-12 sm:w-12 object-contain" loading="lazy" />
@@ -165,6 +173,7 @@ export default async function Home() {
                     </span>
                   </div>
 
+                  {/* Score/Time */}
                   <div className="w-28 flex flex-col items-center justify-center shrink-0">
                     {match.status === 'TIMED' || match.status === 'SCHEDULED' ? (
                       <div className="text-2xl font-light text-slate-400">
@@ -179,6 +188,7 @@ export default async function Home() {
                     )}
                   </div>
 
+                  {/* Away */}
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
                      {match.awayTeam.crest && (
                       <img src={match.awayTeam.crest} alt={match.awayTeam.name} className="h-10 w-10 sm:h-12 sm:w-12 object-contain" loading="lazy" />
